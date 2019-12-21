@@ -1,0 +1,29 @@
+0.10 14oct2015
+* update readme with weewx 3.x instructions
+
+0.9 24jul2015
+* obfuscate password in logs
+
+0.8 14apr2015
+* fix wing/wind typo
+
+0.7 14apr2015
+* fix windspeed/gust scaling bug
+
+0.6 13jan2015
+* use HH:MM instead of HH.MM for time format
+
+0.5 07dec2014
+* do not upload if no wind - windfinder rejects these posts
+
+0.4 06dec2014
+* update to weewx v3
+
+0.3 17oct2014
+* set post_interval to 5 minutes
+
+0.2 16oct2014
+* set post_interval to 15 minutes
+
+0.1 15oct2014
+* initial release as packaged weewx extension
