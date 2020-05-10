@@ -1,8 +1,7 @@
-# $Id: install.py 1373 2015-10-14 13:50:32Z mwall $
 # installer for WindFinder
-# Copyright 2014 Matthew Wall
+# Copyright 2014-2020 Matthew Wall
 
-from setup import ExtensionInstaller
+from weecfg.extension import ExtensionInstaller
 
 def loader():
     return WindFinderInstaller()
@@ -10,7 +9,7 @@ def loader():
 class WindFinderInstaller(ExtensionInstaller):
     def __init__(self):
         super(WindFinderInstaller, self).__init__(
-            version="0.10",
+            version="0.11",
             name='windfinder',
             description='Upload weather data to WindFinder.',
             author="Matthew Wall",
