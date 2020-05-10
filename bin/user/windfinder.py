@@ -188,7 +188,7 @@ class WindFinderThread(weewx.restx.RESTThread):
         values['time'] = time.strftime("%H:%M", time_tt)
         for key in self._DATA_MAP:
             rkey = self._DATA_MAP[key][0]
-            if record.has_key(rkey) and record[rkey] is not None:
+            if rkey in record and record[rkey] is not None:
                 values[key] = self._DATA_MAP[key][1] % record[rkey]
         url = self.server_url + '?' + urlencode(values)
         if weewx.debug >= 2:
