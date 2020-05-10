@@ -1,5 +1,4 @@
-# $Id: windfinder.py 1343 2015-07-24 23:49:19Z mwall $
-# Copyright 2014 Matthew Wall
+# Copyright 2014-2020 Matthew Wall
 
 """
 This is a weewx extension that uploads data to WindFinder.
@@ -24,36 +23,64 @@ Minimal Configuration:
         password = WINDFINDER_PASSWORD
 """
 
-import Queue
+try:
+    # Python 3
+    import queue
+except ImportError:
+    # Python 2
+    import Queue as queue
 import re
 import sys
-import syslog
 import time
-import urllib
-import urllib2
+try:
+    # Python 3
+    from urllib.parse import urlencode
+except ImportError:
+    # Python 2
+    from urllib import urlencode
+
 
 import weewx
 import weewx.restx
 import weewx.units
-from weeutil.weeutil import to_bool, accumulateLeaves
 
-VERSION = "0.10"
+VERSION = "0.11"
 
 if weewx.__version__ < "3":
     raise weewx.UnsupportedFeature("weewx 3 is required, found %s" %
                                    weewx.__version__)
 
-def logmsg(level, msg):
-    syslog.syslog(level, 'restx: WindFinder: %s' % msg)
+try:
+    # Test for new-style weewx logging by trying to import weeutil.logger
+    import weeutil.logger
+    import logging
+    log = logging.getLogger(__name__)
 
-def logdbg(msg):
-    logmsg(syslog.LOG_DEBUG, msg)
+    def logdbg(msg):
+        log.debug(msg)
 
-def loginf(msg):
-    logmsg(syslog.LOG_INFO, msg)
+    def loginf(msg):
+        log.info(msg)
 
-def logerr(msg):
-    logmsg(syslog.LOG_ERR, msg)
+    def logerr(msg):
+        log.error(msg)
+
+except ImportError:
+    # Old-style weewx logging
+    import syslog
+
+    def logmsg(level, msg):
+        syslog.syslog(level, 'WindFinder: %s' % msg)
+
+    def logdbg(msg):
+        logmsg(syslog.LOG_DEBUG, msg)
+
+    def loginf(msg):
+        logmsg(syslog.LOG_INFO, msg)
+
+    def logerr(msg):
+        logmsg(syslog.LOG_ERR, msg)
+
 
 def _mps_to_knot(v):
     from_t = (v, 'meter_per_second', 'group_speed')
@@ -69,18 +96,14 @@ class WindFinder(weewx.restx.StdRESTbase):
         """
         super(WindFinder, self).__init__(engine, config_dict)
         loginf("service version is %s" % VERSION)
-        try:
-            site_dict = config_dict['StdRESTful']['WindFinder']
-            site_dict = accumulateLeaves(site_dict, max_level=1)
-            site_dict['station_id']
-            site_dict['password']
-        except KeyError, e:
-            logerr("Data will not be posted: Missing option %s" % e)
+        site_dict = weewx.restx.get_site_dict(config_dict, 'WindFinder', 'station_id', 'password')
+        if site_dict is None:
             return
+
         site_dict['manager_dict'] = weewx.manager.get_manager_dict(
             config_dict['DataBindings'], config_dict['Databases'], 'wx_binding')
 
-        self.archive_queue = Queue.Queue()
+        self.archive_queue = queue.Queue()
         self.archive_thread = WindFinderThread(self.archive_queue, **site_dict)
         self.archive_thread.start()
         self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
@@ -100,12 +123,12 @@ class WindFinderThread(weewx.restx.RESTThread):
                  'rain':          ('rainRate',    '%.2f'), # mm/hr
                  }
 
-    def __init__(self, queue, station_id, password, manager_dict,
+    def __init__(self, q, station_id, password, manager_dict,
                  server_url=_SERVER_URL, skip_upload=False,
-                 post_interval=300, max_backlog=sys.maxint, stale=None,
+                 post_interval=300, max_backlog=sys.maxsize, stale=None,
                  log_success=True, log_failure=True,
                  timeout=60, max_tries=3, retry_wait=5):
-        super(WindFinderThread, self).__init__(queue,
+        super(WindFinderThread, self).__init__(q,
                                                protocol_name='WindFinder',
                                                manager_dict=manager_dict,
                                                post_interval=post_interval,
@@ -115,24 +138,22 @@ class WindFinderThread(weewx.restx.RESTThread):
                                                log_failure=log_failure,
                                                max_tries=max_tries,
                                                timeout=timeout,
-                                               retry_wait=retry_wait)
+                                               retry_wait=retry_wait,
+                                               skip_upload=skip_upload)
         self.station_id = station_id
         self.password = password
         self.server_url = server_url
-        self.skip_upload = to_bool(skip_upload)
 
-    def process_record(self, record, dbm):
-        r = self.get_record(record, dbm)
-        if 'windSpeed' not in r or r['windSpeed'] is None:
+    def get_record(self, record, dbm):
+        """Override, and check for a valid windSpeed"""
+        # Call my superclass's version:
+        rec = super(WindFinderThread, self).get_record(record, dbm)
+        # Must have non-null windSpeed
+        if 'windSpeed' not in rec or rec['windSpeed'] is None:
             raise weewx.restx.FailedPost("No windSpeed in record")
-        url = self.get_url(r)
-        if self.skip_upload:
-            raise weewx.restx.FailedPost("Upload disabled for this service")
-        req = urllib2.Request(url)
-        req.add_header("User-Agent", "weewx/%s" % weewx.__version__)
-        self.post_with_retries(req)
 
     def check_response(self, response):
+        """Override, and check the response for WF errors."""
         # this is a very crude way to parse the response, but windfinder does
         # not make things easy for us.  the status is contained within the
         # body tags in an html response.  no codes, no http status.  sigh.
@@ -149,7 +170,8 @@ class WindFinderThread(weewx.restx.RESTThread):
         if not msg.startswith('OK'):
             raise weewx.restx.FailedPost("Server response: %s" % msg)
 
-    def get_url(self, in_record):
+    def format_url(self, in_record):
+        """Override, and create an URL for WindFinder."""
         # put everything into the right units and scaling
         record = weewx.units.to_METRICWX(in_record)
         if 'windSpeed' in record and record['windSpeed'] is not None:
@@ -168,7 +190,7 @@ class WindFinderThread(weewx.restx.RESTThread):
             rkey = self._DATA_MAP[key][0]
             if record.has_key(rkey) and record[rkey] is not None:
                 values[key] = self._DATA_MAP[key][1] % record[rkey]
-        url = self.server_url + '?' + urllib.urlencode(values)
+        url = self.server_url + '?' + urlencode(values)
         if weewx.debug >= 2:
             logdbg('url: %s' % re.sub(r"password=[^\&]*", "password=XXX", url))
         return url
