@@ -44,7 +44,7 @@ import weewx
 import weewx.restx
 import weewx.units
 
-VERSION = "0.11"
+VERSION = "0.12"
 
 if weewx.__version__ < "3":
     raise weewx.UnsupportedFeature("weewx 3 is required, found %s" %
@@ -150,7 +150,8 @@ class WindFinderThread(weewx.restx.RESTThread):
         rec = super(WindFinderThread, self).get_record(record, dbm)
         # Must have non-null windSpeed
         if 'windSpeed' not in rec or rec['windSpeed'] is None:
-            raise weewx.restx.FailedPost("No windSpeed in record")
+            raise weewx.restx.AbortedPost("No windSpeed in record")
+        return rec
 
     def check_response(self, response):
         """Override, and check the response for WF errors."""
@@ -166,7 +167,7 @@ class WindFinderThread(weewx.restx.RESTThread):
                 reading = False
             elif reading:
                 lines.append(line)
-        msg = ''.join(lines)
+        msg = b''.join(lines)
         if not msg.decode('utf-8').startswith('OK'):
             raise weewx.restx.FailedPost("Server response: %s" % msg)
 

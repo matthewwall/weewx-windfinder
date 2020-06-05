@@ -10,7 +10,7 @@ def loader():
 class WindFinderInstaller(ExtensionInstaller):
     def __init__(self):
         super(WindFinderInstaller, self).__init__(
-            version="0.11",
+            version="0.12",
             name='windfinder',
             description='Upload weather data to WindFinder.',
             author="Matthew Wall",
