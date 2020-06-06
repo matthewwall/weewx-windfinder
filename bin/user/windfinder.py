@@ -161,14 +161,15 @@ class WindFinderThread(weewx.restx.RESTThread):
         lines = []
         reading = False
         for line in response:
+            line = line.decode('utf-8')
             if line.find('<body') >= 0:
                 reading = True
             elif line.find('</body>') >= 0:
                 reading = False
             elif reading:
                 lines.append(line)
-        msg = b''.join(lines)
-        if not msg.decode('utf-8').startswith('OK'):
+        msg = ''.join(lines)
+        if not msg.startswith('OK'):
             raise weewx.restx.FailedPost("Server response: %s" % msg)
 
     def format_url(self, in_record):
